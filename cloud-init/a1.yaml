@@ -1,0 +1,6 @@
+#cloud-config
+package_update: true
+packages: [docker.io, python3-pip, git, htop, tmux]
+runcmd:
+  - systemctl enable --now docker
+  - bash -c 'echo "0 */2 * * * root /opt/sovereign/a1_setup.sh" > /etc/cron.d/sovereign' || true

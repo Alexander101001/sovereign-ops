@@ -1,0 +1,53 @@
+name: A1 Ampere Auto-Launch
+on:
+  schedule: [{cron: "*/30 * * * *"}]
+  workflow_dispatch: {}
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OCI CLI
+        run: pip install oci-cli -q
+      - name: Attempt A1 launch (2 OCPU / 12GB)
+        env:
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_KEY_B64: ${{ secrets.OCI_KEY_B64 }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
+        run: |
+          mkdir -p ~/.oci
+          echo "$OCI_KEY_B64" | base64 -d > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          cat > ~/.oci/config <<CFG
+          [DEFAULT]
+          user=$OCI_USER
+          fingerprint=$OCI_FINGERPRINT
+          tenancy=$OCI_TENANCY
+          region=$OCI_REGION
+          key_file=$HOME/.oci/oci_api_key.pem
+          CFG
+          chmod 600 ~/.oci/config
+          EXISTING=$(oci compute instance list --compartment-id "$OCI_TENANCY" --query "data[?contains(shape,'A1') && lifecycle-state!='TERMINATED'].display-name" --raw-output 2>/dev/null)
+          if [ "$EXISTING" != "[]" ] && [ -n "$EXISTING" ]; then
+            echo "A1 already exists: $EXISTING"; exit 0
+          fi
+          IMG="ocid1.image.oc1.eu-frankfurt-1.aaaaaaaa4yruuzv353vx4cf3tcsimt5xqvls6reilpxccqhxbyfk6rzn57qq"
+          SUBNET="ocid1.subnet.oc1.eu-frankfurt-1.aaaaaaaazd2dqatcagixi4nmv2pvm6aoqvorwvuwooytwfqetkci6wnkmu5q"
+          for AD in $(oci iam availability-domain list --query 'data[].id' --raw-output | tr -d '[],"'); do
+            ADN=$(echo $AD | grep -o 'AD-[0-9]')
+            OUT=$(oci compute instance launch --availability-domain "$AD" --compartment-id "$OCI_TENANCY" \
+              --shape VM.Standard.A1.Flex --shape-config '{"ocpus":2,"memoryInGBs":12}' \
+              --image-id "$IMG" --subnet-id "$SUBNET" --assign-public-ip true \
+              --display-name ampere-a1-1 \
+              --user-data-file cloud-init/a1.yaml \
+              --ssh-authorized-keys-file keys/a1.pub 2>&1) || true
+            echo "$OUT" | grep -q '"lifecycle-state"' && {
+              curl -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+                -d chat_id="$TG_CHAT" -d text="🚀 A1 Ampere LAUNCHED in $ADN (2 OCPU/12GB) via GitHub Actions!"; exit 0; }
+            echo "AD $ADN: $(echo "$OUT" | grep -oE 'Out of host capacity|CannotParseRequest|LimitExceeded' | head -1)"
+          done
+          echo "No capacity this round"
