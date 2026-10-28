@@ -9,7 +9,7 @@ printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=%s\nkey_file=%s\n
 chmod 600 ~/.oci/config
 export PATH="$HOME/.local/bin:$PATH"
 command -v oci >/dev/null || pip install -q oci-cli
-EXISTING=$(oci compute instance list --compartment-id "$OCI_TENANCY" --query "data[?contains(shape,'A1') && lifecycle-state!='TERMINATED'].display-name" --raw-output 2>/dev/null || echo "ERR")
+RAW=$(oci compute instance list --compartment-id "$OCI_TENANCY" 2>&1) || { echo "LIST FAILED: $RAW" | head -5; exit 1; }; EXISTING=$(echo "$RAW" | oci ... )
 if [ "$EXISTING" != "[]" ] && [ "$EXISTING" != "ERR" ] && [ -n "$EXISTING" ]; then
   echo "A1 already exists: $EXISTING"; exit 0
 fi
