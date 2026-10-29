@@ -26,4 +26,10 @@ jobs:
       - name: Commit state
         run: |
           git config user.name "sovereign-bot"; git config user.email "bot@sovereign.ops"
-          git add state/ 2>/dev/null && git diff --cached --quiet || git commit -m "state: sales count $(date -u +%FT%TZ)" && git push
+          git add state/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "no state changes"
+          else
+            git commit -m "state: sales count $(date -u +%FT%TZ)"
+            git push
+          fi
