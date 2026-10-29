@@ -1,4 +1,4 @@
-name: VM Watch + Rescue
+name: VM Watch + Rescue + A1 via VM
 on:
   schedule: [{cron: "*/20 * * * *"}]
   workflow_dispatch: {}
@@ -7,36 +7,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Health check + auto-rescue micro VM
+      - name: Health check, rescue, A1 launch via VM path
         env:
           VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_KEY_B64: ${{ secrets.OCI_KEY_B64 }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT: ${{ secrets.TG_CHAT }}
-        run: |
-          mkdir -p ~/.ssh; echo "$VM_SSH_KEY" > ~/.ssh/oci_vm_key; chmod 600 ~/.ssh/oci_vm_key
-          ssh-keyscan -H 92.5.18.80 >> ~/.ssh/known_hosts 2>/dev/null
-          OUT=$(timeout 40 ssh -i ~/.ssh/oci_vm_key -o ConnectTimeout=20 -o StrictHostKeyChecking=no opc@92.5.18.80 'uptime; free -m | head -2' 2>&1) || OUT="UNREACHABLE: $OUT"
-          echo "$OUT"
-          if echo "$OUT" | grep -q "load average"; then
-            LOAD=$(echo "$OUT" | grep -oE 'load average: [0-9.]+' | grep -oE '[0-9.]+$')
-            if awk "BEGIN{exit !($LOAD < 2)}"; then
-              ssh -i ~/.ssh/oci_vm_key -o StrictHostKeyChecking=no opc@92.5.18.80 'bash -s' <<'FIX' || true
-swapon --show | grep -q /swapfile || {
-  sudo systemctl disable --now dnf-makecache.timer dnf-makecache.service
-  sudo dnf clean all -q
-  sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap -q /swapfile && sudo swapon /swapfile
-  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-  echo RESCUE_APPLIED
-}
-FIX
-            fi
-          else
-            NOW=$(date +%s); SINCE=$(cat state/vm_down_since 2>/dev/null || echo $NOW)
-            echo $NOW > /tmp/now; [ -f state/vm_down_since ] || echo $NOW > state/vm_down_since
-            ELAPSED=$(( NOW - $(cat state/vm_down_since) ))
-            if [ $ELAPSED -gt 10800 ]; then
-              curl -s -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
-                -d chat_id="$TG_CHAT" -d text="⚠️ Micro VM down >3h ($(date -u +%H:%M UTC)) — needs attention" || true
-              echo $NOW > state/vm_down_since
-            fi
-          fi
+        run: bash scripts/vm_watch.sh
